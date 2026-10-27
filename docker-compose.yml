@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  flightfair-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flightfair-api
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - FLASK_ENV=production
+      - MLFLOW_TRACKING_URI=sqlite:///mlflow.db
+      - MLFLOW_EXPERIMENT_NAME=FlightFair_Predictive_Pricing
+    volumes:
+      - ./model:/app/model
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./mlflow.db:/app/mlflow.db
+    restart: unless-stopped
+
+  mlflow-ui:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: flightfair-mlflow-ui
+    ports:
+      - "5001:5000"
+    command: >
+      mlflow ui
+      --backend-store-uri sqlite:///mlflow.db
+      --host 0.0.0.0
+      --port 5000
+    volumes:
+      - ./mlflow.db:/mlflow.db
+      - ./reports:/reports
+    restart: unless-stopped

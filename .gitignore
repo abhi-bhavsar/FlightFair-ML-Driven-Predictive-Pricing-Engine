@@ -1,4 +1,35 @@
+# Virtual Environment & Python cache
 .venv/
 __pycache__/
-data/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Environment Variables & Secrets
+.env
+.env.*
+*.env
+
+# Logs & Databases
+logs/
+*.log
+mlflow.db
+mlruns/
+
+# DVC Internal Cache & Locks
+.dvc/cache/
+.dvc/tmp/
+
+# Large Raw Data (tracked by DVC)
+data/*.xlsx
+data/raw/*.xlsx
+!data/raw/*.xlsx.dvc
+data/processed/*.csv
+
+# OS metadata
 .DS_Store
+Thumbs.db

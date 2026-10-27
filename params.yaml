@@ -1,0 +1,20 @@
+data:
+  raw_train: data/raw/train_data.xlsx
+  raw_test: data/raw/test_data.xlsx
+  processed_train: data/processed/train_clean.csv
+  test_size: 0.2
+  random_state: 42
+
+train:
+  algorithm: XGBoost
+  n_estimators: 300
+  max_depth: 7
+  learning_rate: 0.1
+  subsample: 1.0
+  colsample_bytree: 0.8
+  min_child_weight: 3
+  random_state: 42
+
+evaluate:
+  target_metric: r2_score
+  min_acceptable_r2: 0.80

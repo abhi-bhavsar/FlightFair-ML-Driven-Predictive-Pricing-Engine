@@ -1,291 +1,290 @@
 import os
-import pickle
-from datetime import datetime, timedelta
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-import streamlit as st
+from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask_cors import CORS
+from pydantic import BaseModel, Field, field_validator
 
-from src.data_pipeline import preprocess_flight_data
-
-
-st.set_page_config(
-    page_title="Flight Fare Prediction",
-    page_icon="✈️",
-    layout="centered",
-    initial_sidebar_state="collapsed"
+from src.config import (
+    ALL_AIRLINES,
+    ALL_DESTINATIONS,
+    ALL_SOURCES,
+    BASE_DIR,
+    MODEL_METADATA_PATH,
+    MODEL_PATH,
+    STATIC_DIR,
+    TEMPLATES_DIR,
 )
+from src.logger import logger
+from src.pipeline.predict_pipeline import PredictPipeline
+from src.utils import load_json
 
-st.markdown("""
-<style>
+# Initialize Flask Application
+app = Flask(
+    __name__,
+    static_folder=str(STATIC_DIR),
+    template_folder=str(TEMPLATES_DIR)
+)
+CORS(app)
 
-.main-title{
-    font-size:2.5rem;
-    font-weight:700;
-    margin-bottom:0;
-}
-
-.subtitle{
-    color:#888;
-    font-size:1rem;
-    margin-bottom:2rem;
-}
-
-.stButton>button{
-    width:100%;
-    height:3.2rem;
-    font-size:18px;
-    font-weight:600;
-}
-
-div[data-testid="stMetric"]{
-    border-radius:12px;
-    padding:18px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-MODEL_PATH = "model/best_xgboost_flight_model.pkl"
-
-AIRLINES = [
-    "Air India",
-    "GoAir",
-    "IndiGo",
-    "Jet Airways",
-    "Jet Airways Business",
-    "Multiple carriers",
-    "Multiple carriers Premium economy",
-    "SpiceJet",
-    "Trujet",
-    "Vistara",
-    "Vistara Premium economy"
-]
-
-SOURCES = [
-    "Delhi",
-    "Kolkata",
-    "Mumbai",
-    "Chennai"
-]
-
-DESTINATIONS = [
-    "Cochin",
-    "Delhi",
-    "Hyderabad",
-    "Kolkata",
-    "New Delhi"
-]
-@st.cache_resource
-def load_model():
-
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(
-            f"Model not found at {MODEL_PATH}"
-        )
-
-    with open(MODEL_PATH, "rb") as f:
-        model = pickle.load(f)
-
-    return model
-
-
+# Initialize inference pipeline
 try:
-
-    model = load_model()
-
+    predict_pipeline = PredictPipeline(model_path=MODEL_PATH, metadata_path=MODEL_METADATA_PATH)
+    logger.info("PredictPipeline initialized successfully in Flask application.")
 except Exception as e:
-
-    st.error(f"Unable to load model.\n\n{e}")
-    st.stop()
-st.markdown(
-    "<div class='main-title'>✈️ Flight Fare Predictor</div>",
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    "<div class='subtitle'>Predict airline ticket prices using an XGBoost Machine Learning model.</div>",
-    unsafe_allow_html=True
-)
-
-st.divider()
-st.subheader("Flight Information")
-
-left, right = st.columns(2)
-
-with left:
-
-    airline = st.selectbox(
-        "Airline",
-        AIRLINES
-    )
-
-with right:
-
-    stops = st.selectbox(
-        "Total Stops",
-        [0,1,2,3,4],
-        index=0
-    )
+    logger.error(f"Failed to initialize PredictPipeline: {e}")
+    predict_pipeline = None
 
 
-left, right = st.columns(2)
+# ---------------------------------------------------------
+# Pydantic Schemas for Request Validation
+# ---------------------------------------------------------
+class SingleFlightRequest(BaseModel):
+    airline: str = Field(..., description="Airline name (e.g., 'IndiGo', 'Air India', 'SpiceJet')")
+    source: str = Field(..., description="Departure airport city (e.g., 'Delhi', 'Mumbai', 'Kolkata')")
+    destination: str = Field(..., description="Arrival airport city (e.g., 'Cochin', 'Banglore', 'Hyderabad')")
+    departure_datetime: str = Field(..., description="Departure ISO datetime string, e.g. '2026-11-20T10:30:00'")
+    arrival_datetime: str = Field(..., description="Arrival ISO datetime string, e.g. '2026-11-20T14:45:00'")
+    stops: int = Field(default=0, ge=0, le=4, description="Total number of stops (0 to 4)")
 
-with left:
-
-    source = st.selectbox(
-        "Source",
-        SOURCES
-    )
-
-with right:
-
-    destination = st.selectbox(
-        "Destination",
-        DESTINATIONS
-    )
-
-st.divider()
-
-st.subheader("Travel Schedule")
-
-today = datetime.today()
-
-default_departure = today + timedelta(days=7)
-
-default_arrival = default_departure + timedelta(hours=2)
+    @field_validator("source", "destination")
+    @classmethod
+    def validate_cities(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("City name cannot be empty")
+        return v.strip()
 
 
-left, right = st.columns(2)
+class BatchFlightRequest(BaseModel):
+    flights: List[SingleFlightRequest]
 
-with left:
 
-    dep_date = st.date_input(
-        "Departure Date",
-        value=default_departure.date(),
-        min_value=today.date()
-    )
-
-    dep_time = st.time_input(
-        "Departure Time",
-        value=default_departure.time().replace(second=0,microsecond=0)
-    )
-
-with right:
-
-    arr_date = st.date_input(
-        "Arrival Date",
-        value=default_arrival.date(),
-        min_value=dep_date
-    )
-
-    arr_time = st.time_input(
-        "Arrival Time",
-        value=default_arrival.time().replace(second=0,microsecond=0)
-    )
-
-st.divider()
-if st.button("🚀 Predict Flight Fare"):
-
-    departure_datetime = datetime.combine(dep_date, dep_time)
-    arrival_datetime = datetime.combine(arr_date, arr_time)
-
-    if arrival_datetime <= departure_datetime:
-        arrival_datetime += timedelta(days=1)
-
-    duration = arrival_datetime - departure_datetime
-    duration_hours = duration.total_seconds() / 3600
-
-    if source == destination:
-
-        st.error("❌ Source and Destination cannot be the same.")
-        st.stop()
-
-    if duration_hours < 0.30:
-
-        st.error("❌ Flight duration is unrealistically short.")
-        st.stop()
-
-    if stops >= 3 and duration_hours < 4:
-
-        st.error(
-            "❌ Flights having 3 or more stops generally require longer travel durations."
-        )
-        st.stop()
-
-    if duration_hours > 48:
-
-        st.error(
-            "❌ Flight duration appears invalid."
-        )
-        st.stop()
-
-    # ------------------------------------------------------
-    # MODEL PREDICTION
-    # ------------------------------------------------------
-
-    with st.spinner("Predicting flight fare..."):
-
+# ---------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------
+def parse_iso_datetime(dt_str: str) -> datetime:
+    """Parses varied datetime string formats into datetime object."""
+    dt_str = dt_str.replace("Z", "").strip()
+    formats = [
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d"
+    ]
+    for fmt in formats:
         try:
+            return datetime.strptime(dt_str, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Unable to parse datetime: '{dt_str}'. Supported ISO format: 'YYYY-MM-DDTHH:MM'.")
 
-            input_df = preprocess_flight_data(
-                airline=airline,
-                source=source,
-                destination=destination,
-                departure_datetime=departure_datetime,
-                arrival_datetime=arrival_datetime,
-                stops=stops
+
+# ---------------------------------------------------------
+# Web Application Route (Frontend Dashboard)
+# ---------------------------------------------------------
+@app.route("/", methods=["GET"])
+def index():
+    """Serves the FlightFair interactive web dashboard."""
+    metadata = {}
+    if MODEL_METADATA_PATH.exists():
+        metadata = load_json(MODEL_METADATA_PATH)
+
+    return render_template(
+        "index.html",
+        airlines=ALL_AIRLINES,
+        sources=ALL_SOURCES,
+        destinations=ALL_DESTINATIONS,
+        metadata=metadata
+    )
+
+
+# ---------------------------------------------------------
+# REST API Endpoints
+# ---------------------------------------------------------
+@app.route("/health", methods=["GET"])
+@app.route("/api/v1/health", methods=["GET"])
+def health_check():
+    """Health check endpoint providing service status and model diagnostics."""
+    is_ready = predict_pipeline is not None and predict_pipeline.model is not None
+    status_code = 200 if is_ready else 503
+
+    return jsonify({
+        "status": "healthy" if is_ready else "degraded",
+        "service": "FlightFair Predictive Pricing Engine",
+        "version": "1.0.0",
+        "model_loaded": is_ready,
+        "framework": "Flask / XGBoost / MLflow / DVC",
+        "server_time": datetime.now().isoformat()
+    }), status_code
+
+
+@app.route("/api/v1/metadata", methods=["GET"])
+def get_metadata():
+    """Returns available airlines, sources, destinations, and stop configurations."""
+    return jsonify({
+        "status": "success",
+        "data": {
+            "airlines": ALL_AIRLINES,
+            "sources": ALL_SOURCES,
+            "destinations": ALL_DESTINATIONS,
+            "stops_options": [
+                {"label": "Non-stop (Direct)", "value": 0},
+                {"label": "1 Stop", "value": 1},
+                {"label": "2 Stops", "value": 2},
+                {"label": "3 Stops", "value": 3},
+                {"label": "4 Stops", "value": 4}
+            ]
+        }
+    }), 200
+
+
+@app.route("/api/v1/predict", methods=["POST"])
+def predict():
+    """
+    Predicts airline ticket fare for a single flight query.
+    Optionally computes route competitor pricing comparison.
+    """
+    start_time = time.time()
+
+    if not predict_pipeline:
+        return jsonify({
+            "status": "error",
+            "message": "Predictive model is not loaded. Please ensure model training is completed."
+        }), 503
+
+    try:
+        req_json = request.get_json(force=True, silent=False)
+        if not req_json:
+            return jsonify({"status": "error", "message": "Missing JSON request body."}), 400
+
+        # Validate with Pydantic
+        flight_req = SingleFlightRequest(**req_json)
+
+        dep_dt = parse_iso_datetime(flight_req.departure_datetime)
+        arr_dt = parse_iso_datetime(flight_req.arrival_datetime)
+
+        if flight_req.source.lower() == flight_req.destination.lower():
+            return jsonify({
+                "status": "error",
+                "message": f"Source and Destination cannot be the same city ('{flight_req.source}')."
+            }), 400
+
+        # Execute Prediction
+        prediction_result = predict_pipeline.predict_single_flight(
+            airline=flight_req.airline,
+            source=flight_req.source,
+            destination=flight_req.destination,
+            departure_datetime=dep_dt,
+            arrival_datetime=arr_dt,
+            stops=flight_req.stops
+        )
+
+        # Include competitor comparison on same route
+        include_comparison = request.args.get("compare", "true").lower() == "true"
+        comparisons = []
+        if include_comparison:
+            comparisons = predict_pipeline.compare_airlines_on_route(
+                source=flight_req.source,
+                destination=flight_req.destination,
+                departure_datetime=dep_dt,
+                arrival_datetime=arr_dt,
+                stops=flight_req.stops
             )
 
-            prediction = float(model.predict(input_df)[0])
+        prediction_result["route_comparisons"] = comparisons
 
-        except Exception as e:
+        latency_ms = round((time.time() - start_time) * 1000, 2)
+        return jsonify({
+            "status": "success",
+            "data": prediction_result,
+            "latency_ms": latency_ms
+        }), 200
 
-            st.error(f"Prediction Failed\n\n{e}")
-            st.stop()
-    if prediction < 0:
+    except ValueError as ve:
+        return jsonify({"status": "error", "message": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Prediction endpoint error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-        prediction = abs(prediction)
 
-    prediction = max(prediction, 1200)
+@app.route("/api/v1/predict/batch", methods=["POST"])
+def predict_batch():
+    """Predicts fares for a batch of multiple flight queries."""
+    start_time = time.time()
 
-    prediction = round(prediction, 2)
-    st.success("Prediction Generated Successfully!")
+    if not predict_pipeline:
+        return jsonify({"status": "error", "message": "Predictive model is not loaded."}), 503
 
-    st.metric(
-        label="💰 Estimated Flight Fare",
-        value=f"₹ {prediction:,.2f}"
-    )
+    try:
+        req_json = request.get_json(force=True)
+        batch_req = BatchFlightRequest(**req_json)
 
-    st.divider()
+        results = []
+        for item in batch_req.flights:
+            dep_dt = parse_iso_datetime(item.departure_datetime)
+            arr_dt = parse_iso_datetime(item.arrival_datetime)
+            res = predict_pipeline.predict_single_flight(
+                airline=item.airline,
+                source=item.source,
+                destination=item.destination,
+                departure_datetime=dep_dt,
+                arrival_datetime=arr_dt,
+                stops=item.stops
+            )
+            results.append(res)
 
-    st.subheader("Journey Summary")
+        prices = [r["predicted_price_inr"] for r in results]
+        summary = {
+            "total_flights": len(results),
+            "average_price_inr": round(sum(prices) / len(prices), 2) if prices else 0,
+            "min_price_inr": min(prices) if prices else 0,
+            "max_price_inr": max(prices) if prices else 0,
+        }
 
-    c1, c2 = st.columns(2)
+        latency_ms = round((time.time() - start_time) * 1000, 2)
+        return jsonify({
+            "status": "success",
+            "summary": summary,
+            "predictions": results,
+            "latency_ms": latency_ms
+        }), 200
 
-    with c1:
+    except Exception as e:
+        logger.error(f"Batch prediction error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 400
 
-        st.write(f"**✈️ Airline** : {airline}")
-        st.write(f"**🛫 Source** : {source}")
-        st.write(f"**🛬 Destination** : {destination}")
-        st.write(f"**🛑 Stops** : {stops}")
 
-    with c2:
+@app.route("/api/v1/model-info", methods=["GET"])
+def model_info():
+    """Returns detailed training metadata, metrics, and parameters."""
+    if not MODEL_METADATA_PATH.exists():
+        return jsonify({
+            "status": "warning",
+            "message": "Metadata file not found. Model might have been loaded from default weights."
+        }), 404
 
-        st.write(
-            f"**📅 Departure** : {departure_datetime.strftime('%d %b %Y, %I:%M %p')}"
-        )
+    try:
+        data = load_json(MODEL_METADATA_PATH)
+        return jsonify({
+            "status": "success",
+            "metadata": data
+        }), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-        st.write(
-            f"**📅 Arrival** : {arrival_datetime.strftime('%d %b %Y, %I:%M %p')}"
-        )
 
-        hours = int(duration.total_seconds() // 3600)
-        minutes = int((duration.total_seconds() % 3600) // 60)
+def main():
+    """Runs the Flask development server or production WSGI runner."""
+    port = int(os.getenv("PORT", 5000))
+    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    logger.info(f"Starting FlightFair server on http://localhost:{port}")
+    app.run(host="0.0.0.0", port=port, debug=debug)
 
-        st.write(
-            f"**⏱ Duration** : {hours}h {minutes}m"
-        )
 
-    st.divider()
-
-    st.info(
-        "💡 This fare is an estimate generated by the trained XGBoost regression model. Actual airline prices may vary depending on seat availability, demand, holidays, airline policies, and booking time."
-    )
+if __name__ == "__main__":
+    main()

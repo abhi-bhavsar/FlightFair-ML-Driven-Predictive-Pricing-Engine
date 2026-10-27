@@ -1,0 +1,26 @@
+stages:
+  feature_engineering:
+    cmd: python -c "from src.data_ingestion import DataIngestion; from src.feature_engineering import FeatureEngineer; from src.config import TRAIN_PROCESSED_PATH; df, _ = DataIngestion().load_data(); clean_df = FeatureEngineer().clean_and_engineer_dataset(df, is_train=True); clean_df.to_csv(TRAIN_PROCESSED_PATH, index=False)"
+    deps:
+      - data/raw/train_data.xlsx
+      - src/data_ingestion.py
+      - src/feature_engineering.py
+    outs:
+      - data/processed/train_clean.csv
+
+  train:
+    cmd: python src/pipeline/train_pipeline.py
+    deps:
+      - data/processed/train_clean.csv
+      - src/model_trainer.py
+      - src/pipeline/train_pipeline.py
+    params:
+      - train.n_estimators
+      - train.max_depth
+      - train.learning_rate
+      - train.random_state
+    outs:
+      - model/best_xgboost_flight_model.pkl
+    metrics:
+      - model/model_metadata.json:
+          cache: false

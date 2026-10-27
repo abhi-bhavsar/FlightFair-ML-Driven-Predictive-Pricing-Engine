@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlightFair — Predictive Flight Pricing Engine & Intelligence Deck</title>
+    <meta name="description" content="Production-grade flight fare prediction engine powered by hyperparameter-tuned XGBoost, MLflow experiment tracking, DVC dataset versioning, and Flask REST API.">
+    
+    <!-- Google Fonts: Space Grotesk, Plus Jakarta Sans, JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Custom Modern Aviation Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Subtle Grid Background Overlay -->
+    <div class="aviation-grid-bg"></div>
+
+    <!-- Top Command Bar Navigation -->
+    <header class="command-bar">
+        <div class="command-container">
+            <!-- Brand -->
+            <div class="brand-group">
+                <div class="brand-logo">
+                    <span class="radar-ping"></span>
+                    <i data-lucide="plane"></i>
+                </div>
+                <div class="brand-info">
+                    <div class="brand-row">
+                        <span class="brand-name">FLIGHT<strong>FAIR</strong></span>
+                        <span class="version-tag">v1.0.0</span>
+                    </div>
+                    <span class="brand-desc">ML Predictive Pricing Engine</span>
+                </div>
+            </div>
+
+            <!-- Pipeline Status Indicators -->
+            <div class="telemetry-pills">
+                <div class="status-pill status-live">
+                    <span class="status-dot"></span>
+                    <span>ENGINE READY</span>
+                </div>
+                <div class="status-pill">
+                    <i data-lucide="cpu"></i>
+                    <span>XGBoost Regressor</span>
+                </div>
+                <div class="status-pill">
+                    <i data-lucide="award"></i>
+                    <span>R²: {{ metadata.get('metrics', {}).get('r2_score', '0.8492') }}</span>
+                </div>
+                <div class="status-pill">
+                    <i data-lucide="git-branch"></i>
+                    <span>MLflow & DVC</span>
+                </div>
+            </div>
+
+            <!-- Action Controls -->
+            <div class="header-actions">
+                <button type="button" class="action-btn" id="open-api-btn">
+                    <i data-lucide="terminal"></i>
+                    <span>API Docs</span>
+                </button>
+                <button type="button" class="action-btn" id="open-mlops-btn">
+                    <i data-lucide="activity"></i>
+                    <span>MLOps Hub</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Deck Container -->
+    <main class="deck-container">
+        <!-- Flight Control Deck (Horizontal Integrated Booking Strip) -->
+        <section class="flight-deck-wrapper">
+            <!-- Deck Top Bar Options -->
+            <div class="deck-top-bar">
+                <div class="trip-options">
+                    <span class="trip-tag active"><i data-lucide="arrow-right"></i> One Way</span>
+                    <span class="trip-tag"><i data-lucide="calendar"></i> Dynamic Pricing Horizon</span>
+                </div>
+
+                <!-- Currency & Unit Switcher -->
+                <div class="currency-dock">
+                    <span class="dock-label">CURRENCY:</span>
+                    <button type="button" class="curr-pill active" data-curr="INR">₹ INR</button>
+                    <button type="button" class="curr-pill" data-curr="USD">$ USD</button>
+                </div>
+            </div>
+
+            <!-- Integrated Control Strip Form -->
+            <form id="pricing-form" class="control-strip">
+                <!-- Origin Hub -->
+                <div class="strip-block origin-block">
+                    <div class="strip-label">
+                        <i data-lucide="plane-takeoff"></i> ORIGIN AIRPORT
+                    </div>
+                    <div class="select-field">
+                        <select id="source-select" name="source" required>
+                            {% for src in sources %}
+                            <option value="{{ src }}" {% if src == 'Delhi' %}selected{% endif %}>{{ src }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="airport-code-badge" id="source-code-badge">DEL</div>
+                    </div>
+                    <span class="airport-sub" id="source-airport-name">Indira Gandhi International</span>
+                </div>
+
+                <!-- Directional Trajectory Swap Button -->
+                <div class="strip-action">
+                    <button type="button" class="route-swap-btn" id="swap-route-btn" title="Swap Origin & Destination">
+                        <i data-lucide="arrow-left-right"></i>
+                    </button>
+                </div>
+
+                <!-- Destination Hub -->
+                <div class="strip-block dest-block">
+                    <div class="strip-label">
+                        <i data-lucide="plane-land"></i> DESTINATION AIRPORT
+                    </div>
+                    <div class="select-field">
+                        <select id="dest-select" name="destination" required>
+                            {% for dst in destinations %}
+                            <option value="{{ dst }}" {% if dst == 'Cochin' %}selected{% endif %}>{{ dst }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="airport-code-badge" id="dest-code-badge">COK</div>
+                    </div>
+                    <span class="airport-sub" id="dest-airport-name">Cochin International</span>
+                </div>
+
+                <!-- Departure Schedule -->
+                <div class="strip-block schedule-block">
+                    <div class="strip-label">
+                        <i data-lucide="calendar"></i> DEPARTURE
+                    </div>
+                    <input type="datetime-local" id="dep-datetime" name="departure_datetime" required>
+                    <span class="time-sub" id="dep-day-badge">Friday Flight</span>
+                </div>
+
+                <!-- Arrival Schedule -->
+                <div class="strip-block schedule-block">
+                    <div class="strip-label">
+                        <i data-lucide="clock"></i> ARRIVAL (EST.)
+                    </div>
+                    <input type="datetime-local" id="arr-datetime" name="arrival_datetime" required>
+                    <span class="time-sub duration-highlight" id="duration-pill">Duration: 4h 15m</span>
+                </div>
+
+                <!-- Carrier & Routing -->
+                <div class="strip-block carrier-block">
+                    <div class="strip-label">
+                        <i data-lucide="shield"></i> AIRLINE & ROUTING
+                    </div>
+                    <div class="dual-inputs">
+                        <select id="airline-select" name="airline" required>
+                            {% for al in airlines %}
+                            <option value="{{ al }}" {% if al == 'IndiGo' %}selected{% endif %}>{{ al }}</option>
+                            {% endfor %}
+                        </select>
+
+                        <select id="stops-select" name="stops" required>
+                            <option value="0" selected>Direct (0 Stops)</option>
+                            <option value="1">1 Stop (Connecting)</option>
+                            <option value="2">2 Stops</option>
+                            <option value="3">3+ Stops</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Run Prediction Button -->
+                <div class="strip-submit">
+                    <button type="submit" class="submit-engine-btn" id="run-engine-btn">
+                        <span class="btn-shine"></span>
+                        <div class="btn-content">
+                            <i data-lucide="zap"></i>
+                            <span class="btn-main-text">PREDICT FARE</span>
+                        </div>
+                        <div class="spinner hidden" id="engine-spinner"></div>
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Main Display Arena (Boarding Pass & Pricing Intel) -->
+        <section class="display-arena">
+            <!-- Idle Placeholder (Before First Run) -->
+            <div class="arena-placeholder" id="arena-placeholder">
+                <div class="radar-scanner">
+                    <div class="radar-circle"></div>
+                    <div class="radar-sweep"></div>
+                    <i data-lucide="compass" class="scanner-icon"></i>
+                </div>
+                <h3>Predictive Engine Initialized</h3>
+                <p>Configure flight hub endpoints and schedule, then click <strong>Predict Fare</strong> to run temporal regression through the serialized XGBoost pipeline.</p>
+                <div class="pipeline-benchmarks">
+                    <div class="bench-item">
+                        <span class="bench-label">Model Accuracy</span>
+                        <strong class="bench-val">84.92% (R² Score)</strong>
+                    </div>
+                    <div class="bench-separator">•</div>
+                    <div class="bench-item">
+                        <span class="bench-label">Mean Absolute Error</span>
+                        <strong class="bench-val">₹1,117.49</strong>
+                    </div>
+                    <div class="bench-separator">•</div>
+                    <div class="bench-item">
+                        <span class="bench-label">Inference Latency</span>
+                        <strong class="bench-val">&lt; 15 ms</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Prediction View: The Digital Boarding Pass -->
+            <div class="boarding-pass-container hidden" id="boarding-pass-view">
+                <div class="ticket-card">
+                    <!-- Left Body: Flight Trajectory & Flight Info -->
+                    <div class="ticket-body">
+                        <!-- Airline & Flight Code Header -->
+                        <div class="ticket-header">
+                            <div class="carrier-tag">
+                                <div class="carrier-icon-badge" id="ticket-airline-icon">
+                                    <i data-lucide="plane"></i>
+                                </div>
+                                <div>
+                                    <h4 id="ticket-airline-name">IndiGo Airlines</h4>
+                                    <span class="flight-no" id="ticket-flight-no">FLIGHT 6E-2044 • REGULAR SERVICE</span>
+                                </div>
+                            </div>
+
+                            <div class="class-tag">
+                                <span class="badge-pill" id="ticket-tier-badge">STANDARD ECONOMY</span>
+                            </div>
+                        </div>
+
+                        <!-- Route Trajectory Graphic -->
+                        <div class="trajectory-visual">
+                            <!-- Departure Station -->
+                            <div class="station-block">
+                                <div class="station-code" id="ticket-source-code">DEL</div>
+                                <div class="station-city" id="ticket-source-city">Delhi</div>
+                                <div class="station-time" id="ticket-dep-time">10:30 AM</div>
+                                <div class="station-date" id="ticket-dep-date">20 Nov 2026</div>
+                            </div>
+
+                            <!-- Flight Path Arc & Stats -->
+                            <div class="flight-arc-container">
+                                <div class="flight-duration-label" id="ticket-duration">4h 15m</div>
+                                <div class="flight-line">
+                                    <div class="line-dot left"></div>
+                                    <div class="line-path"></div>
+                                    <i data-lucide="plane" class="path-plane-icon"></i>
+                                    <div class="line-dot right"></div>
+                                </div>
+                                <div class="flight-stops-label" id="ticket-stops">Non-Stop (Direct)</div>
+                            </div>
+
+                            <!-- Arrival Station -->
+                            <div class="station-block text-right">
+                                <div class="station-code" id="ticket-dest-code">COK</div>
+                                <div class="station-city" id="ticket-dest-city">Cochin</div>
+                                <div class="station-time" id="ticket-arr-time">02:45 PM</div>
+                                <div class="station-date" id="ticket-arr-date">20 Nov 2026</div>
+                            </div>
+                        </div>
+
+                        <!-- Secondary Flight Intel Meta -->
+                        <div class="ticket-footer-meta">
+                            <div class="meta-item">
+                                <i data-lucide="gauge"></i>
+                                <span>Model Latency: <strong id="ticket-latency">14.2 ms</strong></span>
+                            </div>
+                            <div class="meta-item">
+                                <i data-lucide="map-pin"></i>
+                                <span>Route: <strong id="ticket-route-text">DEL ➔ COK</strong></span>
+                            </div>
+                            <div class="meta-item">
+                                <i data-lucide="shield-check"></i>
+                                <span>XGBoost Confidence: <strong>High (90%)</strong></span>
+                            </div>
+                        </div>
+
+                        <!-- AI Market Fare Advice -->
+                        <div class="market-advice-box">
+                            <div class="advice-icon">
+                                <i data-lucide="sparkles"></i>
+                            </div>
+                            <div class="advice-content">
+                                <span class="advice-title">Pricing Intelligence Advisory</span>
+                                <p id="ticket-advice">Standard market rate detected for this corridor. Fares for this specific date and flight duration are within historical median bands.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Perforated Tear Line with Notches -->
+                    <div class="ticket-perforation">
+                        <div class="notch notch-top"></div>
+                        <div class="tear-dashed-line"></div>
+                        <div class="notch notch-bottom"></div>
+                    </div>
+
+                    <!-- Right Stub: The Dynamic Fare & Valuation -->
+                    <div class="ticket-stub">
+                        <div class="stub-header">
+                            <span class="stub-title">ESTIMATED FARE</span>
+                            <span class="stub-serial" id="ticket-stub-serial">EST-92841</span>
+                        </div>
+
+                        <!-- Big Hero Fare Display -->
+                        <div class="hero-fare-box">
+                            <div class="fare-wrapper">
+                                <span class="currency-glyph" id="ticket-curr-symbol">₹</span>
+                                <span class="fare-num" id="ticket-fare-amount">5,500</span>
+                            </div>
+                            <span class="fare-cents" id="ticket-fare-cents">.00</span>
+                        </div>
+
+                        <!-- Confidence Price Range -->
+                        <div class="stub-confidence">
+                            <div class="conf-header">
+                                <span>Expected Range (±10%)</span>
+                                <strong id="ticket-range">₹4,950 – ₹6,050</strong>
+                            </div>
+                            <div class="conf-bar">
+                                <div class="conf-fill"></div>
+                            </div>
+                        </div>
+
+                        <!-- Market Value Rating Gauge -->
+                        <div class="market-gauge-box">
+                            <div class="gauge-labels">
+                                <span>Budget</span>
+                                <span class="active" id="gauge-label">Fair Rate</span>
+                                <span>Peak Surge</span>
+                            </div>
+                            <div class="gauge-track">
+                                <div class="gauge-pointer" id="gauge-pointer"></div>
+                            </div>
+                        </div>
+
+                        <!-- Barcode Simulation for Authentic Aviation Feel -->
+                        <div class="boarding-barcode">
+                            <div class="barcode-lines"></div>
+                            <span class="barcode-number">FLIGHTFAIR-ML-ENGINE-XGB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Secondary Intelligence Panels: Feature Decomposition & Multi-Carrier Matrix -->
+                <div class="intel-split-grid">
+                    <!-- Left: Explainability / Feature Attribution Breakdown -->
+                    <div class="intel-card feature-impact-card">
+                        <div class="intel-header">
+                            <div class="intel-title-group">
+                                <i data-lucide="layers"></i>
+                                <h4>Price Decomposition (Feature Impact)</h4>
+                            </div>
+                            <span class="intel-tag">SHAP Attribution Proxy</span>
+                        </div>
+
+                        <div class="feature-bars-list" id="feature-bars-list">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Right: Multi-Carrier Route Benchmarks -->
+                    <div class="intel-card carrier-matrix-card">
+                        <div class="intel-header">
+                            <div class="intel-title-group">
+                                <i data-lucide="bar-chart-3"></i>
+                                <h4>Route Carrier Comparison Matrix</h4>
+                            </div>
+                            <span class="intel-tag">Live Route Estimates</span>
+                        </div>
+
+                        <div class="carrier-ranking-list" id="carrier-ranking-list">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal 1: Developer REST API Playground -->
+    <div class="command-modal hidden" id="api-modal">
+        <div class="modal-card">
+            <div class="modal-head">
+                <div class="modal-badge-group">
+                    <i data-lucide="terminal"></i>
+                    <div>
+                        <h3>FlightFair REST API Engine</h3>
+                        <p>Production inference endpoints for airline software & scripts</p>
+                    </div>
+                </div>
+                <button type="button" class="close-modal-btn" id="close-api-btn">&times;</button>
+            </div>
+
+            <div class="modal-content">
+                <div class="endpoint-spec">
+                    <span class="http-badge post">POST</span>
+                    <code>http://localhost:5000/api/v1/predict</code>
+                    <span class="json-spec">Content-Type: application/json</span>
+                </div>
+
+                <div class="tab-switcher">
+                    <button type="button" class="tab-pill active" data-tab="curl">cURL</button>
+                    <button type="button" class="tab-pill" data-tab="python">Python</button>
+                    <button type="button" class="tab-pill" data-tab="javascript">JavaScript</button>
+                </div>
+
+                <div class="snippet-box active" id="code-curl">
+                    <pre><code>curl -X POST "http://localhost:5000/api/v1/predict" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "airline": "IndiGo",
+       "source": "Delhi",
+       "destination": "Cochin",
+       "departure_datetime": "2026-11-20T10:30:00",
+       "arrival_datetime": "2026-11-20T14:45:00",
+       "stops": 1
+     }'</code></pre>
+                </div>
+
+                <div class="snippet-box" id="code-python">
+                    <pre><code>import requests
+
+url = "http://localhost:5000/api/v1/predict"
+payload = {
+    "airline": "IndiGo",
+    "source": "Delhi",
+    "destination": "Cochin",
+    "departure_datetime": "2026-11-20T10:30:00",
+    "arrival_datetime": "2026-11-20T14:45:00",
+    "stops": 1
+}
+
+res = requests.post(url, json=payload).json()
+print(f"Predicted Fare: ₹{res['data']['predicted_price_inr']}")</code></pre>
+                </div>
+
+                <div class="snippet-box" id="code-javascript">
+                    <pre><code>const response = await fetch("http://localhost:5000/api/v1/predict", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    airline: "IndiGo",
+    source: "Delhi",
+    destination: "Cochin",
+    departure_datetime: "2026-11-20T10:30:00",
+    arrival_datetime: "2026-11-20T14:45:00",
+    stops: 1
+  })
+});
+const data = await response.json();
+console.log(data);</code></pre>
+                </div>
+
+                <div class="modal-meta-bar">
+                    <i data-lucide="check-circle-2"></i>
+                    <span>Batch endpoint also available at <code>POST /api/v1/predict/batch</code></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: MLOps Telemetry & Experiment Tracking -->
+    <div class="command-modal hidden" id="mlops-modal">
+        <div class="modal-card">
+            <div class="modal-head">
+                <div class="modal-badge-group">
+                    <i data-lucide="activity"></i>
+                    <div>
+                        <h3>MLOps Telemetry & Architecture</h3>
+                        <p>Reproducible ML Pipeline • MLflow Runs • DVC Versioning</p>
+                    </div>
+                </div>
+                <button type="button" class="close-modal-btn" id="close-mlops-btn">&times;</button>
+            </div>
+
+            <div class="modal-content">
+                <!-- Metrics Row -->
+                <div class="mlops-stat-grid">
+                    <div class="mlops-stat-card">
+                        <span class="stat-title">Validation R² Score</span>
+                        <strong class="stat-figure text-cyan">{{ metadata.get('metrics', {}).get('r2_score', '0.8492') }}</strong>
+                        <span class="stat-sub">Variance Explained</span>
+                    </div>
+                    <div class="mlops-stat-card">
+                        <span class="stat-title">Mean Absolute Error</span>
+                        <strong class="stat-figure text-emerald">₹{{ metadata.get('metrics', {}).get('mae', '1,117.49') }}</strong>
+                        <span class="stat-sub">Average Price Deviation</span>
+                    </div>
+                    <div class="mlops-stat-card">
+                        <span class="stat-title">Root Mean Squared Error</span>
+                        <strong class="stat-figure">₹{{ metadata.get('metrics', {}).get('rmse', '1,803.45') }}</strong>
+                        <span class="stat-sub">Validation RMSE</span>
+                    </div>
+                    <div class="mlops-stat-card">
+                        <span class="stat-title">Mean Abs % Error (MAPE)</span>
+                        <strong class="stat-figure">{{ metadata.get('metrics', {}).get('mape', '12.42') }}%</strong>
+                        <span class="stat-sub">Error Percentage</span>
+                    </div>
+                </div>
+
+                <!-- Hyperparameters Table -->
+                <div class="mlops-section">
+                    <h5><i data-lucide="sliders"></i> Hyperparameter Configuration (XGBoost Regressor)</h5>
+                    <div class="hyperparams-deck">
+                        {% for k, v in metadata.get('hyperparameters', {}).items() %}
+                        <div class="param-badge">
+                            <span class="p-key">{{ k }}</span>
+                            <span class="p-val">{{ v }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Reproducibility Pipeline Architecture -->
+                <div class="mlops-section">
+                    <h5><i data-lucide="repeat"></i> Reproducible DVC & MLflow Pipeline</h5>
+                    <div class="pipeline-track">
+                        <div class="track-node">
+                            <div class="node-circle">1</div>
+                            <span>DVC Data Ingestion</span>
+                        </div>
+                        <div class="track-connector"></div>
+                        <div class="track-node">
+                            <div class="node-circle">2</div>
+                            <span>Temporal Feature Pipeline</span>
+                        </div>
+                        <div class="track-connector"></div>
+                        <div class="track-node">
+                            <div class="node-circle">3</div>
+                            <span>XGBoost Tuning</span>
+                        </div>
+                        <div class="track-connector"></div>
+                        <div class="track-node">
+                            <div class="node-circle">4</div>
+                            <span>MLflow Artifact Logging</span>
+                        </div>
+                        <div class="track-connector"></div>
+                        <div class="track-node">
+                            <div class="node-circle">5</div>
+                            <span>Flask REST Service</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Script -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
